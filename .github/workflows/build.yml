@@ -19,7 +19,8 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y bc bison flex libssl-dev libelf-dev \
-                              build-essential git curl python3 rsync
+                              build-essential git curl python3 rsync \
+                              gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
       - name: 取 clang
         run: |
@@ -34,22 +35,12 @@ jobs:
             https://github.com/OnePlusOSS/android_kernel_oneplus_sm8350.git "$K"
           cd "$K" && git log -1 --oneline
 
-      - name: 列出 defconfig
-        run: |
-          echo "===== vendor/ ====="
-          ls "$K/arch/arm64/configs/vendor/" || true
-          echo "===== configs/ ====="
-          ls "$K/arch/arm64/configs/"
-
       - name: 配置内核
         run: |
           cd "$K"
           mkdir -p "$O"
           CFG=arch/arm64/configs/vendor/lahaina_QGKI.config
-
-          echo ">>> 使用 $CFG"
-          echo ">>> 行数: $(wc -l < $CFG)"
-          head -20 "$CFG"
+          echo ">>> 使用 $CFG (行数 $(wc -l < $CFG))"
 
           cp "$CFG" "$O/.config"
 
@@ -58,20 +49,26 @@ jobs:
           ./scripts/config --file "$O/.config" -e MODULES
           ./scripts/config --file "$O/.config" -e MODVERSIONS
 
-          make O="$O" ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
-               CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+          make O="$O" ARCH=arm64 \
+               CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
+               OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+               CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
+               olddefconfig
 
           echo ">>> 关键配置:"
           grep -E '^CONFIG_LOCALVERSION|^CONFIG_MODULES=|^CONFIG_MODVERSIONS|^CONFIG_MODULE_SIG' "$O/.config"
 
-      - name: 编 modules（出 Module.symvers）
+      - name: 编 modules
         run: |
-          CROSS=aarch64-linux-gnu-
           cd "$K"
-          make O="$O" ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
-               CROSS_COMPILE=$CROSS LOCALVERSION=$LV modules -j$(nproc)
+          make O="$O" ARCH=arm64 \
+               CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
+               OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+               CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
+               LOCALVERSION=$LV modules -j$(nproc)
+
           echo ">>> kernelrelease:"
-          make O="$O" ARCH=arm64 CC=clang CROSS_COMPILE=$CROSS \
+          make O="$O" ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-gnu- \
                LOCALVERSION=$LV kernelrelease
 
       - name: 编 hack_bp.ko
