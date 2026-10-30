@@ -19,7 +19,7 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y bc bison flex libssl-dev libelf-dev \
-                              build-essential git curl python3 rsync \
+                              build-essential git curl python3 rsync lld \
                               gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
       - name: 取 clang
@@ -27,7 +27,15 @@ jobs:
           git clone --depth=1 \
             https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
             /tmp/clang
-          echo "/tmp/clang/clang-r416183b/bin" >> $GITHUB_PATH
+          echo "===== clang 顶层目录 ====="
+          ls /tmp/clang/
+          echo "===== 找 clang ====="
+          find /tmp/clang -maxdepth 3 -name clang -type f | head -5
+          echo "===== 找 ld.lld ====="
+          find /tmp/clang -maxdepth 4 -name 'ld.lld' -type f | head -5
+          echo "===== 系统 lld ====="
+          which ld.lld || true
+          ls -l /usr/bin/ld.lld* 2>/dev/null || true
 
       - name: 拉内核源码
         run: |
@@ -49,11 +57,8 @@ jobs:
           ./scripts/config --file "$O/.config" -e MODULES
           ./scripts/config --file "$O/.config" -e MODVERSIONS
 
-          make O="$O" ARCH=arm64 \
-               CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
-               OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-               CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
-               olddefconfig
+          # olddefconfig 不编译代码，用 gcc 交叉链跑更省事
+          make O="$O" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
 
           echo ">>> 关键配置:"
           grep -E '^CONFIG_LOCALVERSION|^CONFIG_MODULES=|^CONFIG_MODVERSIONS|^CONFIG_MODULE_SIG' "$O/.config"
