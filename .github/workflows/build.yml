@@ -1,1 +1,78 @@
+name: build-hack-bp
+on: [push, workflow_dispatch]
 
+env:
+  BRANCH: oneplus/sm8350_u_14.0.0_oneplus9rt
+  LV: -qgki-gac311b3399ae
+  K: /tmp/kernel
+  O: /tmp/kernel/out
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 装依赖
+        run: |
+          sudo apt update
+          sudo apt install -y bc bison flex libssl-dev libelf-dev \
+                              build-essential git curl python3 rsync
+
+      - name: 取 clang
+        run: |
+          git clone --depth=1 \
+            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
+            /tmp/clang
+          echo "/tmp/clang/clang-r416183b/bin" >> $GITHUB_PATH
+
+      - name: 拉内核源码
+        run: |
+          git clone --depth=1 --branch "$BRANCH" \
+            https://github.com/OnePlusOSS/android_kernel_oneplus_sm8350.git "$K"
+          cd "$K" && git log -1 --oneline
+
+      - name: 列出 defconfig
+        run: |
+          echo "===== vendor/ ====="
+          ls "$K/arch/arm64/configs/vendor/" || true
+          echo "===== configs/ ====="
+          ls "$K/arch/arm64/configs/"
+
+      - name: 配置内核
+        run: |
+          CROSS=aarch64-linux-gnu-
+          cd "$K"
+          DEF=$(ls arch/arm64/configs/vendor/ | grep -i martini | head -1)
+          if [ -z "$DEF" ]; then
+            DEF=$(ls arch/arm64/configs/vendor/*.defconfig | head -1 | xargs basename)
+          fi
+          echo ">>> USING: vendor/$DEF"
+          make O="$O" ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+               CROSS_COMPILE=$CROSS LOCALVERSION=$LV vendor/$DEF
+          ./scripts/config --file "$O/.config" -d LOCALVERSION_AUTO
+
+      - name: 编 modules（出 Module.symvers）
+        run: |
+          CROSS=aarch64-linux-gnu-
+          cd "$K"
+          make O="$O" ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+               CROSS_COMPILE=$CROSS LOCALVERSION=$LV modules -j$(nproc)
+          echo ">>> kernelrelease:"
+          make O="$O" ARCH=arm64 CC=clang CROSS_COMPILE=$CROSS \
+               LOCALVERSION=$LV kernelrelease
+
+      - name: 编 hack_bp.ko
+        run: |
+          make -C "$GITHUB_WORKSPACE/ONEPLUS" KDIR="$K" LOCALVERSION=${{ env.LV }}
+
+      - name: 打印信息
+        run: |
+          modinfo ONEPLUS/hack_bp.ko | grep -E 'vermagic|depends|name'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hack_bp-ko
+          path: ONEPLUS/hack_bp.ko
