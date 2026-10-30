@@ -47,6 +47,10 @@ jobs:
         run: |
           cd "$K"
           mkdir -p "$O"
+
+          # 【关键】注释掉 init/Kconfig 里缺失的 sched_assist 引用
+          sed -i 's|^source "kernel/sched_assist/Kconfig"|# &|' init/Kconfig
+
           CFG=arch/arm64/configs/vendor/lahaina_QGKI.config
           echo ">>> 使用 $CFG (行数 $(wc -l < $CFG))"
 
@@ -78,7 +82,13 @@ jobs:
 
       - name: 编 hack_bp.ko
         run: |
-          make -C "$GITHUB_WORKSPACE/ONEPLUS" KDIR="$K" LOCALVERSION=${{ env.LV }}
+          make -C "$GITHUB_WORKSPACE/ONEPLUS" \
+               KDIR="$K" ARCH=arm64 \
+               CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
+               OBJCOPY=llvm-objcopy STRIP=llvm-strip \
+               CROSS_COMPILE=aarch64-linux-gnu- \
+               CLANG_TRIPLE=aarch64-linux-gnu- \
+               LOCALVERSION=$LV
 
       - name: 打印信息
         run: |
